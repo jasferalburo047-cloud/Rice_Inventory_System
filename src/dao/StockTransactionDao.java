@@ -3,7 +3,10 @@ package dao;
 import model.StockTransaction;
 import model.TransactionType;
 
-import java.sql.*;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -13,32 +16,29 @@ public class StockTransactionDao {
 
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
-    private static final String SELECT =
-            "SELECT t.id, t.product_id, p.name AS product_name, t.user_id, u.username, "
-                    + "t.type, t.quantity, t.total_amount, t.transaction_date "
-                    + "FROM stock_transactions t "
-                    + "LEFT JOIN products p ON p.id = t.product_id "
-                    + "JOIN users u ON u.id = t.user_id ";
+    private static final String SQL_ADD_STOCK = "UPDATE products SET quantity = quantity + ? WHERE id = ?";
+    private static final String SQL_DEDUCT_STOCK = "UPDATE products SET quantity = quantity - ? WHERE id = ? AND quantity >= ?";
+    private static final String SQL_INSERT = "INSERT INTO stock_transactions (product_id, user_id, type, quantity, total_amount, transaction_date) VALUES (?, ?, ?, ?, ?, ?)";
+    private static final String SQL_FIND_ALL = "SELECT t.id, t.product_id, p.name AS product_name, t.user_id, u.username, t.type, t.quantity, t.total_amount, t.transaction_date FROM stock_transactions t LEFT JOIN products p ON p.id = t.product_id JOIN users u ON u.id = t.user_id ORDER BY t.id DESC";
+    private static final String SQL_FIND_BY_USER = "SELECT t.id, t.product_id, p.name AS product_name, t.user_id, u.username, t.type, t.quantity, t.total_amount, t.transaction_date FROM stock_transactions t LEFT JOIN products p ON p.id = t.product_id JOIN users u ON u.id = t.user_id WHERE t.user_id = ? ORDER BY t.id DESC";
 
     /**
      * Updates the product stock AND records the transaction in one database transaction.
      * @return false if there was not enough stock (nothing is changed in that case)
      */
     public boolean record(int productId, int userId, TransactionType type, double quantity, double totalAmount) {
-        String updateSql = (type == TransactionType.STOCK_IN)
-                ? "UPDATE products SET quantity = quantity + ? WHERE id = ?"
-                : "UPDATE products SET quantity = quantity - ? WHERE id = ? AND quantity >= ?";
-        String insertSql = "INSERT INTO stock_transactions "
-                + "(product_id, user_id, type, quantity, total_amount, transaction_date) VALUES (?, ?, ?, ?, ?, ?)";
+        String updateSql = (type == TransactionType.STOCK_IN) ? SQL_ADD_STOCK : SQL_DEDUCT_STOCK;
 
         try (Connection c = DatabaseConnection.getConnection()) {
             c.setAutoCommit(false);
             try (PreparedStatement up = c.prepareStatement(updateSql);
-                 PreparedStatement ins = c.prepareStatement(insertSql)) {
+                 PreparedStatement ins = c.prepareStatement(SQL_INSERT)) {
 
                 up.setDouble(1, quantity);
                 up.setInt(2, productId);
-                if (type != TransactionType.STOCK_IN) up.setDouble(3, quantity);
+                if (type != TransactionType.STOCK_IN) {
+                    up.setDouble(3, quantity);
+                }
                 if (up.executeUpdate() == 0) {
                     c.rollback();
                     return false;
@@ -64,18 +64,20 @@ public class StockTransactionDao {
     }
 
     public List<StockTransaction> findAll() {
-        return query(SELECT + "ORDER BY t.id DESC", null);
+        return query(SQL_FIND_ALL);
     }
 
     public List<StockTransaction> findByUser(int userId) {
-        return query(SELECT + "WHERE t.user_id = ? ORDER BY t.id DESC", userId);
+        return query(SQL_FIND_BY_USER, userId);
     }
 
-    private List<StockTransaction> query(String sql, Integer userId) {
+    private List<StockTransaction> query(String sql, Object... params) {
         List<StockTransaction> list = new ArrayList<>();
         try (Connection c = DatabaseConnection.getConnection();
              PreparedStatement ps = c.prepareStatement(sql)) {
-            if (userId != null) ps.setInt(1, userId);
+            for (int i = 0; i < params.length; i++) {
+                ps.setObject(i + 1, params[i]);
+            }
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     list.add(new StockTransaction(

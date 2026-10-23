@@ -2,7 +2,10 @@ package dao;
 
 import model.ActivityLog;
 
-import java.sql.*;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -12,10 +15,12 @@ public class ActivityLogDao {
 
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
+    private static final String SQL_INSERT = "INSERT INTO activity_logs (user_id, action, log_date) VALUES (?, ?, ?)";
+    private static final String SQL_FIND_ALL = "SELECT l.id, l.user_id, u.username, l.action, l.log_date FROM activity_logs l JOIN users u ON u.id = l.user_id ORDER BY l.id DESC";
+
     public void log(int userId, String action) {
-        String sql = "INSERT INTO activity_logs (user_id, action, log_date) VALUES (?, ?, ?)";
         try (Connection c = DatabaseConnection.getConnection();
-             PreparedStatement ps = c.prepareStatement(sql)) {
+             PreparedStatement ps = c.prepareStatement(SQL_INSERT)) {
             ps.setInt(1, userId);
             ps.setString(2, action);
             ps.setString(3, LocalDateTime.now().format(FMT));
@@ -26,12 +31,10 @@ public class ActivityLogDao {
     }
 
     public List<ActivityLog> findAll() {
-        String sql = "SELECT l.id, l.user_id, u.username, l.action, l.log_date "
-                + "FROM activity_logs l JOIN users u ON u.id = l.user_id ORDER BY l.id DESC";
         List<ActivityLog> list = new ArrayList<>();
         try (Connection c = DatabaseConnection.getConnection();
-             Statement st = c.createStatement();
-             ResultSet rs = st.executeQuery(sql)) {
+             PreparedStatement ps = c.prepareStatement(SQL_FIND_ALL);
+             ResultSet rs = ps.executeQuery()) {
             while (rs.next()) {
                 list.add(new ActivityLog(rs.getInt("id"), rs.getInt("user_id"),
                         rs.getString("username"), rs.getString("action"), rs.getString("log_date")));

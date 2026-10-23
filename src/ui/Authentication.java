@@ -1,7 +1,13 @@
 package ui;
 
-import dao.*;
-import model.*;
+import dao.ActivityLogDao;
+import dao.DataAccessException;
+import dao.ProductDao;
+import dao.StockTransactionDao;
+import dao.SupplierDao;
+import dao.UserDao;
+import model.Role;
+import model.User;
 import util.ConsoleInput;
 
 import java.util.Scanner;
@@ -42,10 +48,17 @@ public class Authentication {
 
             try {
                 switch (choice) {
-                    case 1: login(); break;
-                    case 2: register(); break;
-                    case 0: System.out.println("Goodbye!"); return;
-                    default: System.out.println("Invalid choice.");
+                    case 1:
+                        login();
+                        break;
+                    case 2:
+                        register();
+                        break;
+                    case 0:
+                        System.out.println("Goodbye!");
+                        return;
+                    default:
+                        System.out.println("Invalid choice.");
                 }
             } catch (DataAccessException e) {
                 System.out.println("Database error: " + e.getMessage());
@@ -70,15 +83,15 @@ public class Authentication {
                 continue;
             }
 
-            switch (user.getStatus()) {
+            switch (user.status()) {
                 case PENDING:
-                    System.out.println("Your account is still PENDING approval by the manager.");
+                    System.out.println("Your account is still PENDING approval by the admin.");
                     return;
                 case INACTIVE:
-                    System.out.println("Your account is deactivated. Contact the manager.");
+                    System.out.println("Your account is deactivated. Contact the admin.");
                     return;
                 default:
-                    logDao.log(user.getId(), "Logged in");
+                    logDao.log(user.id(), "Logged in");
                     routeToMenu(user);
                     return;
             }
@@ -88,9 +101,9 @@ public class Authentication {
     /** Routes the logged-in user to the menu of their role. */
     private void routeToMenu(User user) {
         RoleMenu menu;
-        switch (user.getRole()) {
+        switch (user.role()) {
             case MANAGER:
-                menu = new ManagerMenu(scanner, user, userDao, productDao, supplierDao, transactionDao, logDao);
+                menu = new AdminMenu(scanner, user, userDao, productDao, supplierDao, transactionDao, logDao);
                 break;
             case STAFF:
                 menu = new StaffMenu(scanner, user, userDao, productDao, supplierDao, transactionDao, logDao);
@@ -108,22 +121,27 @@ public class Authentication {
         String username;
         while (true) {
             username = in.askRequired("Username: ");
-            if (userDao.usernameExists(username)) System.out.println("  Username already exists.");
-            else break;
+            if (userDao.usernameExists(username)) {
+                System.out.println("  Username already exists.");
+            } else {
+                break;
+            }
         }
 
         int password;
         while (true) {
             password = in.askPin("Password (4-9 digits, numbers only): ");
             int confirm = in.askPin("Confirm password: ");
-            if (password == confirm) break;
+            if (password == confirm) {
+                break;
+            }
             System.out.println("  Passwords do not match.");
         }
 
         String fullName = in.askRequired("Full name: ");
 
         System.out.println("Select role:");
-        System.out.println("  1) Manager");
+        System.out.println("  1) Manager (Admin)");
         System.out.println("  2) Staff");
         System.out.println("  3) Cashier");
         int r;
@@ -134,6 +152,6 @@ public class Authentication {
 
         userDao.register(username, password, fullName, role);
         System.out.println("Account created as " + role + " with status PENDING.");
-        System.out.println("A manager must approve it before you can log in.");
+        System.out.println("An admin must approve it before you can log in.");
     }
 }

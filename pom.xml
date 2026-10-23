@@ -11,8 +11,9 @@
     <name>Rice Inventory System</name>
 
     <properties>
-        <maven.compiler.source>11</maven.compiler.source>
-        <maven.compiler.target>11</maven.compiler.target>
+        <!-- Java Records and text blocks need JDK 17 or newer -->
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
@@ -26,9 +27,6 @@
     </dependencies>
 
     <build>
-        <!-- Your code is in src/com/riceinventory/... (not src/main/java) -->
-        <sourceDirectory>src</sourceDirectory>
-
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -36,7 +34,7 @@
                 <version>3.11.0</version>
             </plugin>
 
-            <!-- Lets you run with: mvn compile exec:java -->
+            <!-- Run with: mvn compile exec:java -->
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>exec-maven-plugin</artifactId>

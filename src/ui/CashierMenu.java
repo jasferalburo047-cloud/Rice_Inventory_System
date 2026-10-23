@@ -49,7 +49,7 @@ public class CashierMenu extends RoleMenu {
             System.out.println("  Amount is less than the total.");
         }
 
-        if (!transactionDao.record(p.getId(), user.getId(), TransactionType.SALE, qty, total)) {
+        if (!transactionDao.record(p.getId(), user.id(), TransactionType.SALE, qty, total)) {
             System.out.println("Sale failed: not enough stock anymore.");
             return;
         }

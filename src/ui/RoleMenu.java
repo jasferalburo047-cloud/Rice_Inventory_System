@@ -60,7 +60,7 @@ public abstract class RoleMenu {
 
         List<MenuItem> items = buildMenu();
         while (true) {
-            System.out.println("\n===== MAIN MENU - " + user.getFullName() + " (" + user.getRole() + ") =====");
+            System.out.println("\n===== MAIN MENU - " + user.fullName() + " (" + user.role() + ") =====");
             for (int i = 0; i < items.size(); i++) {
                 System.out.printf("%2d. %s%n", i + 1, items.get(i).label);
             }
@@ -84,7 +84,7 @@ public abstract class RoleMenu {
     }
 
     protected void log(String action) {
-        logDao.log(user.getId(), action);
+        logDao.log(user.id(), action);
     }
 
     protected void line() { System.out.println("-".repeat(78)); }
@@ -133,7 +133,7 @@ public abstract class RoleMenu {
     protected void viewTransactions() {
         System.out.println("\n== Transaction History ==");
         List<StockTransaction> list = ownTransactionsOnly()
-                ? transactionDao.findByUser(user.getId())
+                ? transactionDao.findByUser(user.id())
                 : transactionDao.findAll();
         if (list.isEmpty()) { System.out.println("No transactions recorded."); return; }
         line();
@@ -171,7 +171,7 @@ public abstract class RoleMenu {
         if (p == null) { System.out.println("Product not found."); return; }
         double qty = in.askPositive("Quantity (kg): ", false);
 
-        if (!transactionDao.record(p.getId(), user.getId(), type, qty, 0)) {
+        if (!transactionDao.record(p.getId(), user.id(), type, qty, 0)) {
             System.out.println("Not enough stock. Available: " + p.getQuantity() + " kg");
             return;
         }
