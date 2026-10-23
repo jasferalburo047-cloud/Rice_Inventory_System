@@ -1,21 +1,37 @@
-import dao.DatabaseConnection;
-import dao.UserDao;
-import model.User;
-import ui.MainMenu;
+package com.riceinventory;
 
-/** Application entry point. */
+import dao.*;
+import ui.Authentication;
+
+import java.util.Scanner;
+
+/**
+ * Single entry point.
+ * Flow: Initialize Database -> Instantiate DAOs & Utilities -> Authentication.start()
+ */
 public class Main {
 
     public static void main(String[] args) {
-        DatabaseConnection.initialize();
-        UserDao userDao = new UserDao();
-
-        // Default manager so the first pending accounts can be approved.
-        if (!userDao.usernameExists("admin")) {
-            userDao.registerWithStatus("admin", "admin123", User.ROLE_MANAGER, User.STATUS_ACTIVE);
-            System.out.println("Default manager created -> username: admin | password: admin123");
+        // 1. Initialize the database (tables are created automatically)
+        try {
+            new DatabaseInitializer().initialize();
+        } catch (DataAccessException e) {
+            System.out.println(e.getMessage());
+            System.out.println("Make sure the sqlite-jdbc driver is on your classpath.");
+            return;
         }
 
-        new MainMenu(userDao).run();
+        // 2. Instantiate DAOs & utilities (ONE shared instance of each)
+        UserDao userDao = new UserDao();
+        ProductDao productDao = new ProductDao();
+        SupplierDao supplierDao = new SupplierDao();
+        StockTransactionDao transactionDao = new StockTransactionDao();
+        ActivityLogDao logDao = new ActivityLogDao();
+        Scanner scanner = new Scanner(System.in);
+
+        // 3. Delegate everything else to Authentication
+        new Authentication(scanner, userDao, productDao, supplierDao, transactionDao, logDao).start();
+
+        scanner.close();
     }
 }

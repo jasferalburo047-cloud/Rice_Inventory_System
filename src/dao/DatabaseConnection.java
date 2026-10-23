@@ -5,32 +5,21 @@ import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
 
-/** Handles the SQLite connection and creates the tables on first run. */
+/** Opens SQLite connections and ALWAYS enables foreign key constraints. */
 public final class DatabaseConnection {
 
     private static final String URL = "jdbc:sqlite:rice_inventory.db";
 
-    private static final String CREATE_USERS_TABLE = """
-            CREATE TABLE IF NOT EXISTS users (
-                id       INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT NOT NULL UNIQUE,
-                password TEXT NOT NULL,
-                roles    TEXT NOT NULL,
-                status   TEXT NOT NULL DEFAULT 'PENDING'
-            )
-            """;
-
-    private DatabaseConnection() {}
+    private DatabaseConnection() { }
 
     public static Connection getConnection() throws SQLException {
-        return DriverManager.getConnection(URL);
-    }
-
-    public static void initialize() {
-        try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
-            stmt.execute(CREATE_USERS_TABLE);
+        Connection conn = DriverManager.getConnection(URL);
+        try (Statement st = conn.createStatement()) {
+            st.execute("PRAGMA foreign_keys = ON;");
         } catch (SQLException e) {
-            throw new IllegalStateException("Could not initialize database: " + e.getMessage(), e);
+            conn.close();
+            throw e;
         }
+        return conn;
     }
 }
