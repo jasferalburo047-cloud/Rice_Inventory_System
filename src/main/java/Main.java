@@ -1,5 +1,3 @@
-package com.riceinventory;
-
 import dao.*;
 import ui.Authentication;
 

@@ -7,6 +7,7 @@ import dao.SupplierDao;
 import dao.UserDao;
 import model.ActivityLog;
 import model.Product;
+import model.Role;
 import model.TransactionType;
 import model.User;
 import model.UserStatus;
@@ -35,6 +36,7 @@ public class AdminMenu extends RoleMenu {
                 new MenuItem("View All System Users", this::viewAllUsers),
                 new MenuItem("View Pending Registrations", this::viewPendingUsers),
                 new MenuItem("Approve User Account", this::approveUserAccount),
+                new MenuItem("Update User Role & Status", this::updateUserRoleAndStatus),
                 new MenuItem("Deactivate / Reactivate User Account", this::toggleAccountStatus),
                 new MenuItem("View all rice products", this::viewProducts),
                 new MenuItem("Search product (name / type)", this::searchProduct),
@@ -72,7 +74,7 @@ public class AdminMenu extends RoleMenu {
         }
 
         while (true) {
-            int id = in.askInt("Enter User ID to approve (0 to cancel): ");
+            int id = readInt("Enter User ID to approve (0 to cancel): ");
             if (id == 0) {
                 System.out.println("Approval cancelled.");
                 return;
@@ -95,12 +97,107 @@ public class AdminMenu extends RoleMenu {
         }
     }
 
+    /**
+     * Admin feature: change another user's role and status.
+     * Enter 0 at any prompt to cancel. The admin cannot edit their own account.
+     */
+    private void updateUserRoleAndStatus() {
+        List<User> users = userDao.getAllUsers();
+        printUserTable("All System Users", users);
+
+        User target = null;
+        while (target == null) {
+            int targetUserId = readInt("Enter User ID to update (0 to cancel): ");
+            if (targetUserId == 0) {
+                System.out.println("Update cancelled.");
+                return;
+            }
+            if (targetUserId == user.id()) {   // user = the admin who is logged in
+                System.out.println("WARNING: Modifying the currently active admin account is restricted.");
+                continue;
+            }
+            target = findInList(users, targetUserId);
+            if (target == null) {
+                System.out.println("  User ID " + targetUserId + " does not exist. Try again or enter 0 to cancel.");
+            }
+        }
+
+        System.out.println("Selected: " + target.username() + " (current role: " + target.role()
+                + ", current status: " + target.status() + ")");
+
+        String newRole = readValidRole();
+        if (newRole == null) {
+            System.out.println("Update cancelled.");
+            return;
+        }
+
+        String newStatus = readValidStatus();
+        if (newStatus == null) {
+            System.out.println("Update cancelled.");
+            return;
+        }
+
+        if (userDao.updateUserRoleAndStatus(target.id(), newRole, newStatus)) {
+            log("Updated user " + target.username() + " to role " + newRole + ", status " + newStatus);
+            System.out.println("SUCCESS: " + target.username() + " is now " + newRole + " with status " + newStatus + ".");
+            printUserTable("Updated User List", userDao.getAllUsers());
+        } else {
+            System.out.println("Update failed. Please try again.");
+        }
+    }
+
+    // ---------------------------------------------------------------
+    //  INPUT VALIDATION WRAPPERS (never crash on bad input)
+    // ---------------------------------------------------------------
+
+    /** Keeps asking until the user types a whole number (letters / symbols are rejected). */
+    private int readInt(String prompt) {
+        while (true) {
+            String input = in.ask(prompt);
+            try {
+                return Integer.parseInt(input);
+            } catch (NumberFormatException e) {
+                System.out.println("  Invalid input. Please enter numbers only.");
+            }
+        }
+    }
+
+    /** Keeps asking until a valid role is typed. Returns null if the user enters 0 (cancel). */
+    private String readValidRole() {
+        while (true) {
+            String input = in.ask("Enter new role (MANAGER / STAFF / CASHIER, 0 to cancel): ").toUpperCase();
+            if (input.equals("0")) {
+                return null;
+            }
+            for (Role r : Role.values()) {
+                if (r.name().equals(input)) {
+                    return r.name();
+                }
+            }
+            System.out.println("  Invalid role. Please type MANAGER, STAFF or CASHIER.");
+        }
+    }
+
+    /** Keeps asking until APPROVED or PENDING is typed. Returns null if the user enters 0 (cancel). */
+    private String readValidStatus() {
+        while (true) {
+            String input = in.ask("Enter new status (APPROVED / PENDING, 0 to cancel): ").toUpperCase();
+            if (input.equals("0")) {
+                return null;
+            }
+            if (input.equals(UserStatus.APPROVED.name()) || input.equals(UserStatus.PENDING.name())) {
+                return input;
+            }
+            System.out.println("  Invalid status. Please type APPROVED or PENDING.");
+        }
+    }
+
     private void toggleAccountStatus() {
         List<User> users = userDao.getAllUsers();
         printUserTable("All System Users", users);
 
         while (true) {
-            int id = in.askInt("Enter User ID to deactivate / reactivate (0 to cancel): ");
+            int id = readInt("Enter User ID to deactivate / reactivate (0 to cancel): ");
             if (id == 0) {
                 System.out.println("Action cancelled.");
                 return;

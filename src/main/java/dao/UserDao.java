@@ -22,6 +22,7 @@ public class UserDao {
     private static final String SQL_GET_PENDING = "SELECT id, username, full_name, role, status FROM users WHERE status = 'PENDING' ORDER BY id";
     private static final String SQL_APPROVE = "UPDATE users SET status = 'APPROVED' WHERE id = ?";
     private static final String SQL_UPDATE_STATUS = "UPDATE users SET status = ? WHERE id = ?";
+    private static final String SQL_UPDATE_ROLE_STATUS = "UPDATE users SET role = ?, status = ? WHERE id = ?";
 
     public boolean usernameExists(String username) {
         try (Connection c = DatabaseConnection.getConnection();
@@ -89,6 +90,24 @@ public class UserDao {
             return ps.executeUpdate() > 0;
         } catch (SQLException e) {
             throw new DataAccessException("Could not update user status.", e);
+        }
+    }
+
+    /**
+     * Updates a user's role and status in one parameterized statement.
+     * Both values are converted to upper case before they are sent to the database.
+     */
+    public boolean updateUserRoleAndStatus(int userId, String newRole, String newStatus) {
+        String role = newRole.trim().toUpperCase();
+        String status = newStatus.trim().toUpperCase();
+        try (Connection c = DatabaseConnection.getConnection();
+             PreparedStatement ps = c.prepareStatement(SQL_UPDATE_ROLE_STATUS)) {
+            ps.setString(1, role);
+            ps.setString(2, status);
+            ps.setInt(3, userId);
+            return ps.executeUpdate() > 0;
+        } catch (SQLException e) {
+            throw new DataAccessException("Could not update user role and status.", e);
         }
     }
 
