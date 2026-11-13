@@ -1,5 +1,6 @@
 package dao;
 
+import model.ActionType;
 import model.Product;
 
 import java.sql.Connection;
@@ -10,6 +11,7 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 
+/** Product database access. Lifecycle changes (add / edit / stock update / removal) are logged. */
 public class ProductDao {
 
     private static final String SQL_INSERT = "INSERT INTO products (name, rice_type, price, quantity, reorder_level, supplier_id) VALUES (?, ?, ?, ?, ?, ?)";
@@ -21,7 +23,15 @@ public class ProductDao {
     private static final String SQL_SET_QUANTITY = "UPDATE products SET quantity = ? WHERE id = ?";
     private static final String SQL_DELETE = "DELETE FROM products WHERE id = ?";
 
-    public int insert(Product p) {
+    private final ActivityLogDao activityLogDao;
+
+    public ProductDao(ActivityLogDao activityLogDao) {
+        this.activityLogDao = activityLogDao;
+    }
+
+    /** Adds a product and logs it (PRODUCT_ADDED). */
+    public int insert(int userId, Product p) {
+        int newId = -1;
         try (Connection c = DatabaseConnection.getConnection();
              PreparedStatement ps = c.prepareStatement(SQL_INSERT, Statement.RETURN_GENERATED_KEYS)) {
             ps.setString(1, p.getName());
@@ -32,11 +42,15 @@ public class ProductDao {
             ps.setInt(6, p.getSupplierId());
             ps.executeUpdate();
             try (ResultSet keys = ps.getGeneratedKeys()) {
-                return keys.next() ? keys.getInt(1) : -1;
+                newId = keys.next() ? keys.getInt(1) : -1;
             }
         } catch (SQLException e) {
             throw new DataAccessException("Could not add product.", e);
         }
+        activityLogDao.logAction(userId, ActionType.PRODUCT_ADDED,
+                "Added product #" + newId + " " + p.getName() + " (" + p.getRiceType()
+                        + ") at P" + num(p.getPrice()) + "/kg.");
+        return newId;
     }
 
     public List<Product> findAll() {
@@ -57,7 +71,9 @@ public class ProductDao {
         return list.isEmpty() ? null : list.get(0);
     }
 
-    public boolean update(Product p) {
+    /** Edits product details and logs it (PRODUCT_UPDATED). */
+    public boolean update(int userId, Product p) {
+        boolean updated = false;
         try (Connection c = DatabaseConnection.getConnection();
              PreparedStatement ps = c.prepareStatement(SQL_UPDATE)) {
             ps.setString(1, p.getName());
@@ -66,31 +82,64 @@ public class ProductDao {
             ps.setDouble(4, p.getReorderLevel());
             ps.setInt(5, p.getSupplierId());
             ps.setInt(6, p.getId());
-            return ps.executeUpdate() > 0;
+            updated = ps.executeUpdate() > 0;
         } catch (SQLException e) {
             throw new DataAccessException("Could not update product.", e);
         }
+        if (updated) {
+            activityLogDao.logAction(userId, ActionType.PRODUCT_UPDATED,
+                    "Updated product #" + p.getId() + " " + p.getName() + " - price P" + num(p.getPrice())
+                            + "/kg, reorder level " + num(p.getReorderLevel()) + " kg.");
+        }
+        return updated;
     }
 
-    public boolean setQuantity(int id, double quantity) {
+    /** Sets the stock to a new quantity and logs the change (STOCK_ADJUSTED). */
+    public boolean setQuantity(int userId, int productId, double newQuantity) {
+        Product before = findById(productId);
+        if (before == null) {
+            return false;
+        }
+        boolean updated = false;
         try (Connection c = DatabaseConnection.getConnection();
              PreparedStatement ps = c.prepareStatement(SQL_SET_QUANTITY)) {
-            ps.setDouble(1, quantity);
-            ps.setInt(2, id);
-            return ps.executeUpdate() > 0;
+            ps.setDouble(1, newQuantity);
+            ps.setInt(2, productId);
+            updated = ps.executeUpdate() > 0;
         } catch (SQLException e) {
             throw new DataAccessException("Could not update stock quantity.", e);
         }
+        if (updated) {
+            activityLogDao.logAction(userId, ActionType.STOCK_ADJUSTED,
+                    "Updated stock of " + before.getName() + " from " + num(before.getQuantity())
+                            + " kg to " + num(newQuantity) + " kg.");
+        }
+        return updated;
     }
 
-    public boolean delete(int id) {
+    /** Removes a discontinued product and logs it (PRODUCT_REMOVED). */
+    public boolean delete(int userId, int productId) {
+        Product before = findById(productId);
+        if (before == null) {
+            return false;
+        }
+        boolean deleted = false;
         try (Connection c = DatabaseConnection.getConnection();
              PreparedStatement ps = c.prepareStatement(SQL_DELETE)) {
-            ps.setInt(1, id);
-            return ps.executeUpdate() > 0;
+            ps.setInt(1, productId);
+            deleted = ps.executeUpdate() > 0;
         } catch (SQLException e) {
             throw new DataAccessException("Could not remove product.", e);
         }
+        if (deleted) {
+            activityLogDao.logAction(userId, ActionType.PRODUCT_REMOVED,
+                    "Removed discontinued product #" + productId + " " + before.getName() + ".");
+        }
+        return deleted;
+    }
+
+    private static String num(double value) {
+        return String.format("%.2f", value);
     }
 
     private List<Product> query(String sql, Object... params) {

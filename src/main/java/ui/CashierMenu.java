@@ -49,11 +49,11 @@ public class CashierMenu extends RoleMenu {
             System.out.println("  Amount is less than the total.");
         }
 
+        // StockTransactionDao updates the stock, saves the sale and writes the SALE_PROCESSED log
         if (!transactionDao.record(p.getId(), user.id(), TransactionType.SALE, qty, total)) {
             System.out.println("Sale failed: not enough stock anymore.");
             return;
         }
-        log(String.format("Sale: %.2f kg of %s = %.2f", qty, p.getName(), total));
         System.out.printf("Sale complete. Change: %.2f%n", pay - total);
     }
 }

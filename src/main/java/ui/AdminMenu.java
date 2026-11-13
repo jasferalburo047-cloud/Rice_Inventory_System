@@ -12,15 +12,20 @@ import model.TransactionType;
 import model.User;
 import model.UserStatus;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Scanner;
 
 /**
  * Menu for the Manager / Admin role.
- * NOTE: no SQL in this class - only DAO calls.
+ * NOTE: no SQL in this class - only DAO calls. The DAOs write the audit-log entries.
  */
 public class AdminMenu extends RoleMenu {
+
+    /** Column layout of the audit-log table: ID | User ID | Action Type | Description | Timestamp */
+    private static final String LOG_ROW = "%-5s | %-8s | %-18s | %-35s | %-20s";
+    private static final int LOG_DESCRIPTION_WIDTH = 35;
 
     public AdminMenu(Scanner scanner, User user, UserDao userDao, ProductDao productDao,
                      SupplierDao supplierDao, StockTransactionDao transactionDao, ActivityLogDao logDao) {
@@ -50,8 +55,119 @@ public class AdminMenu extends RoleMenu {
                 new MenuItem("Low-Stock Alert Report", this::lowStockReport),
                 new MenuItem("Add supplier", this::addSupplier),
                 new MenuItem("View suppliers", this::viewSuppliers),
-                new MenuItem("View Activity (Audit) Log", this::viewLogs)
+                new MenuItem("View System Audit Logs", this::viewAuditLogs)
         );
+    }
+
+    // ================================================================
+    //  AUDIT LOGS
+    // ================================================================
+
+    private void viewAuditLogs() {
+        while (true) {
+            System.out.println("\n== System Audit Logs ==");
+            System.out.println(" 1. View all system logs");
+            System.out.println(" 2. Filter logs by User ID");
+            System.out.println(" 3. Clear all logs");
+            System.out.println(" 0. Back");
+            int choice = readInt("Choose: ");
+
+            switch (choice) {
+                case 1:
+                    printLogTable("All System Logs", logDao.getAllLogs());
+                    break;
+                case 2:
+                    filterLogsByUser();
+                    break;
+                case 3:
+                    clearAllLogs();
+                    break;
+                case 0:
+                    return;
+                default:
+                    System.out.println("  Invalid choice. Please pick 0 to 3.");
+            }
+        }
+    }
+
+    private void filterLogsByUser() {
+        int targetId = readInt("Enter User ID to filter (0 to cancel): ");
+        if (targetId == 0) {
+            System.out.println("Cancelled.");
+            return;
+        }
+        printLogTable("Logs for User ID " + targetId, logDao.getLogsByUserId(targetId));
+    }
+
+    private void clearAllLogs() {
+        int total = logDao.getAllLogs().size();
+        if (total == 0) {
+            System.out.println("There are no logs to clear.");
+            return;
+        }
+        System.out.println("WARNING: This permanently deletes " + total + (total == 1 ? " log entry." : " log entries."));
+        String confirm = in.ask("Type CLEAR to confirm (anything else cancels): ");
+        if (!confirm.equals("CLEAR")) {
+            System.out.println("Cancelled. No logs were deleted.");
+            return;
+        }
+        int deleted = logDao.clearLogs(user.id());
+        System.out.println(deleted + (deleted == 1 ? " log entry" : " log entries") + " deleted. This clear action was recorded in the log.");
+    }
+
+    /** Aligned console table for any list of audit-log entries (long descriptions wrap onto extra lines). */
+    private void printLogTable(String title, List<ActivityLog> logs) {
+        System.out.println("\n== " + title + " ==");
+        if (logs.isEmpty()) {
+            System.out.println("No log entries found.");
+            return;
+        }
+
+        String header = String.format(LOG_ROW, "ID", "User ID", "Action Type", "Description", "Timestamp");
+        String divider = "-".repeat(header.length());
+
+        System.out.println(divider);
+        System.out.println(header);
+        System.out.println(divider);
+        for (ActivityLog log : logs) {
+            List<String> lines = wrap(log.getDescription(), LOG_DESCRIPTION_WIDTH);
+            System.out.println(String.format(LOG_ROW, log.getId(), log.getUserId(),
+                    fit(log.getActionType(), 18), lines.get(0), log.getTimestamp()));
+            for (int i = 1; i < lines.size(); i++) {
+                System.out.println(String.format(LOG_ROW, "", "", "", lines.get(i), ""));
+            }
+        }
+        System.out.println(divider);
+        System.out.println("Total: " + logs.size() + (logs.size() == 1 ? " log entry" : " log entries"));
+    }
+
+    /** Splits text into lines of at most 'width' characters, breaking at spaces where possible. */
+    private List<String> wrap(String text, int width) {
+        List<String> lines = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        for (String word : text.trim().split("\\s+")) {
+            while (word.length() > width) {              // a single very long word
+                if (current.length() > 0) {
+                    lines.add(current.toString());
+                    current.setLength(0);
+                }
+                lines.add(word.substring(0, width));
+                word = word.substring(width);
+            }
+            if (current.length() == 0) {
+                current.append(word);
+            } else if (current.length() + 1 + word.length() <= width) {
+                current.append(' ').append(word);
+            } else {
+                lines.add(current.toString());
+                current.setLength(0);
+                current.append(word);
+            }
+        }
+        if (current.length() > 0 || lines.isEmpty()) {
+            lines.add(current.toString());
+        }
+        return lines;
     }
 
     // ================================================================
@@ -86,8 +202,8 @@ public class AdminMenu extends RoleMenu {
                 continue;
             }
 
-            if (userDao.approveUser(id)) {
-                log("Approved user " + target.username() + " (ID " + id + ")");
+            // UserDao writes the USER_APPROVED audit entry
+            if (userDao.approveUser(user.id(), id)) {
                 System.out.println("SUCCESS: " + target.username() + " (" + target.role()
                         + ") has been APPROVED and can now log in.");
             } else {
@@ -137,8 +253,8 @@ public class AdminMenu extends RoleMenu {
             return;
         }
 
-        if (userDao.updateUserRoleAndStatus(target.id(), newRole, newStatus)) {
-            log("Updated user " + target.username() + " to role " + newRole + ", status " + newStatus);
+        // UserDao writes the USER_UPDATED audit entry
+        if (userDao.updateUserRoleAndStatus(user.id(), target.id(), newRole, newStatus)) {
             System.out.println("SUCCESS: " + target.username() + " is now " + newRole + " with status " + newStatus + ".");
             printUserTable("Updated User List", userDao.getAllUsers());
         } else {
@@ -221,8 +337,7 @@ public class AdminMenu extends RoleMenu {
                     ? UserStatus.INACTIVE
                     : UserStatus.APPROVED;
 
-            if (userDao.updateStatus(id, newStatus)) {
-                log("Set user " + target.username() + " to " + newStatus);
+            if (userDao.updateStatus(user.id(), id, newStatus)) {
                 System.out.println(target.username() + " is now " + newStatus + ".");
             } else {
                 System.out.println("Update failed. Please try again.");
@@ -267,7 +382,7 @@ public class AdminMenu extends RoleMenu {
     }
 
     // ================================================================
-    //  PRODUCTS / SUPPLIERS / LOGS
+    //  PRODUCTS / SUPPLIERS
     // ================================================================
 
     private void addProduct() {
@@ -283,8 +398,7 @@ public class AdminMenu extends RoleMenu {
             System.out.println("Supplier not found. Product not saved.");
             return;
         }
-        int id = productDao.insert(new Product(0, name, type, price, qty, reorder, supplierId));
-        log("Added product #" + id + " (" + name + ")");
+        int id = productDao.insert(user.id(), new Product(0, name, type, price, qty, reorder, supplierId));
         System.out.println("Product added with ID " + id);
     }
 
@@ -319,8 +433,7 @@ public class AdminMenu extends RoleMenu {
                 System.out.println("  Invalid, kept old.");
             }
         }
-        productDao.update(p);
-        log("Updated product #" + p.getId());
+        productDao.update(user.id(), p);
         System.out.println("Product updated.");
     }
 
@@ -334,8 +447,7 @@ public class AdminMenu extends RoleMenu {
         if (!in.askYes("Remove \"" + p.getName() + "\"? (y/n): ")) {
             return;
         }
-        productDao.delete(p.getId());
-        log("Removed product #" + p.getId() + " (" + p.getName() + ")");
+        productDao.delete(user.id(), p.getId());
         System.out.println("Product removed.");
     }
 
@@ -344,20 +456,7 @@ public class AdminMenu extends RoleMenu {
         String name = in.askRequired("Supplier name: ");
         String contact = in.askRequired("Contact number: ");
         String address = in.askRequired("Address: ");
-        int id = supplierDao.insert(name, contact, address);
-        log("Added supplier #" + id + " (" + name + ")");
+        int id = supplierDao.insert(user.id(), name, contact, address);
         System.out.println("Supplier added with ID " + id);
-    }
-
-    private void viewLogs() {
-        System.out.println("\n== Activity (Audit) Log ==");
-        List<ActivityLog> logs = logDao.findAll();
-        line();
-        System.out.printf("%-5s %-16s %-12s %s%n", "ID", "Date", "User", "Action");
-        line();
-        for (ActivityLog l : logs) {
-            System.out.printf("%-5d %-16s %-12s %s%n", l.getId(), l.getDate(), l.getUsername(), l.getAction());
-        }
-        line();
     }
 }

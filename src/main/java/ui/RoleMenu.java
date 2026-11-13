@@ -10,7 +10,7 @@ import java.util.Scanner;
 /**
  * Base class of the role-based menus (Abstraction + Polymorphism).
  * Each role decides its own menu items; shared features live here.
- * NOTE: no SQL in this layer - only DAO calls.
+ * NOTE: no SQL in this layer - only DAO calls. The DAOs write the audit-log entries.
  */
 public abstract class RoleMenu {
 
@@ -68,8 +68,7 @@ public abstract class RoleMenu {
 
             int choice = in.askInt("Choose: ");
             if (choice == 0) {
-                log("Logged out");
-                return;
+                return;   // Authentication writes the logout entry
             }
             if (choice < 1 || choice > items.size()) {
                 System.out.println("Invalid choice.");
@@ -81,10 +80,6 @@ public abstract class RoleMenu {
                 System.out.println("Database error: " + e.getMessage());
             }
         }
-    }
-
-    protected void log(String action) {
-        logDao.log(user.id(), action);
     }
 
     protected void line() { System.out.println("-".repeat(78)); }
@@ -175,7 +170,6 @@ public abstract class RoleMenu {
             System.out.println("Not enough stock. Available: " + p.getQuantity() + " kg");
             return;
         }
-        log(type + " " + qty + " kg of " + p.getName());
         Product updated = productDao.findById(p.getId());
         System.out.println("Recorded. New stock: " + updated.getQuantity() + " kg");
         if (updated.isLowStock()) System.out.println("  ! Alert: low stock for " + updated.getName());
@@ -186,8 +180,7 @@ public abstract class RoleMenu {
         Product p = productDao.findById(in.askInt("Product ID: "));
         if (p == null) { System.out.println("Product not found."); return; }
         double newQty = in.askPositive("New actual quantity in stock (kg): ", true);
-        productDao.setQuantity(p.getId(), newQty);
-        log("Adjusted stock of " + p.getName() + " from " + p.getQuantity() + " to " + newQty + " kg");
+        productDao.setQuantity(user.id(), p.getId(), newQty);
         System.out.println("Stock quantity updated.");
         if (newQty <= p.getReorderLevel()) System.out.println("  ! Alert: this product is at or below its reorder level.");
     }

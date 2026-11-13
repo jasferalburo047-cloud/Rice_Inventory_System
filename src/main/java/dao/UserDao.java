@@ -1,5 +1,6 @@
 package dao;
 
+import model.ActionType;
 import model.Role;
 import model.User;
 import model.UserStatus;
@@ -8,10 +9,14 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 
-/** All user-related database access. Every query is a parameterized PreparedStatement. */
+/**
+ * All user-related database access. Every query is a parameterized PreparedStatement.
+ * Account changes are written to the audit trail (activity_logs) automatically.
+ */
 public class UserDao {
 
     private static final String SQL_USERNAME_EXISTS = "SELECT 1 FROM users WHERE username = ?";
@@ -23,6 +28,12 @@ public class UserDao {
     private static final String SQL_APPROVE = "UPDATE users SET status = 'APPROVED' WHERE id = ?";
     private static final String SQL_UPDATE_STATUS = "UPDATE users SET status = ? WHERE id = ?";
     private static final String SQL_UPDATE_ROLE_STATUS = "UPDATE users SET role = ?, status = ? WHERE id = ?";
+
+    private final ActivityLogDao activityLogDao;
+
+    public UserDao(ActivityLogDao activityLogDao) {
+        this.activityLogDao = activityLogDao;
+    }
 
     public boolean usernameExists(String username) {
         try (Connection c = DatabaseConnection.getConnection();
@@ -36,18 +47,30 @@ public class UserDao {
         }
     }
 
-    /** Registers a new account. Every new account starts as PENDING. */
-    public void register(String username, int password, String fullName, Role role) {
+    /**
+     * Registers a new account. Every new account starts as PENDING.
+     * @return the id of the new account
+     */
+    public int register(String username, int password, String fullName, Role role) {
+        int newId = -1;
         try (Connection c = DatabaseConnection.getConnection();
-             PreparedStatement ps = c.prepareStatement(SQL_REGISTER)) {
+             PreparedStatement ps = c.prepareStatement(SQL_REGISTER, Statement.RETURN_GENERATED_KEYS)) {
             ps.setString(1, username);
             ps.setInt(2, password);
             ps.setString(3, fullName);
             ps.setString(4, role.name());
             ps.executeUpdate();
+            try (ResultSet keys = ps.getGeneratedKeys()) {
+                newId = keys.next() ? keys.getInt(1) : -1;
+            }
         } catch (SQLException e) {
             throw new DataAccessException("Could not register user.", e);
         }
+        if (newId > 0) {
+            activityLogDao.logAction(newId, ActionType.USER_REGISTERED,
+                    "User " + username + " registered as " + role.name() + " (status PENDING).");
+        }
+        return newId;
     }
 
     /** Returns the matching user (any status) or null if the credentials are wrong. */
@@ -71,44 +94,71 @@ public class UserDao {
         return query(SQL_GET_PENDING);
     }
 
-    /** Changes a user's status from PENDING to APPROVED. */
-    public boolean approveUser(int userId) {
+    /** Changes a user's status from PENDING to APPROVED and logs it (USER_APPROVED). */
+    public boolean approveUser(int adminId, int userId) {
+        User target = findById(userId);
+        boolean updated = false;
         try (Connection c = DatabaseConnection.getConnection();
              PreparedStatement ps = c.prepareStatement(SQL_APPROVE)) {
             ps.setInt(1, userId);
-            return ps.executeUpdate() > 0;
+            updated = ps.executeUpdate() > 0;
         } catch (SQLException e) {
             throw new DataAccessException("Could not approve user.", e);
         }
+        if (updated) {
+            activityLogDao.logAction(adminId, ActionType.USER_APPROVED,
+                    "Admin " + adminId + " approved User " + userId + nameOf(target) + ".");
+        }
+        return updated;
     }
 
-    public boolean updateStatus(int userId, UserStatus status) {
+    /** Changes only the status of a user and logs it (USER_UPDATED). */
+    public boolean updateStatus(int adminId, int userId, UserStatus status) {
+        User target = findById(userId);
+        boolean updated = false;
         try (Connection c = DatabaseConnection.getConnection();
              PreparedStatement ps = c.prepareStatement(SQL_UPDATE_STATUS)) {
             ps.setString(1, status.name());
             ps.setInt(2, userId);
-            return ps.executeUpdate() > 0;
+            updated = ps.executeUpdate() > 0;
         } catch (SQLException e) {
             throw new DataAccessException("Could not update user status.", e);
         }
+        if (updated) {
+            activityLogDao.logAction(adminId, ActionType.USER_UPDATED,
+                    "Admin " + adminId + " set status of User " + userId + nameOf(target) + " to " + status.name() + ".");
+        }
+        return updated;
     }
 
     /**
-     * Updates a user's role and status in one parameterized statement.
+     * Updates a user's role and status in one parameterized statement and logs it (USER_UPDATED).
      * Both values are converted to upper case before they are sent to the database.
      */
-    public boolean updateUserRoleAndStatus(int userId, String newRole, String newStatus) {
+    public boolean updateUserRoleAndStatus(int adminId, int userId, String newRole, String newStatus) {
         String role = newRole.trim().toUpperCase();
         String status = newStatus.trim().toUpperCase();
+        User target = findById(userId);
+        boolean updated = false;
         try (Connection c = DatabaseConnection.getConnection();
              PreparedStatement ps = c.prepareStatement(SQL_UPDATE_ROLE_STATUS)) {
             ps.setString(1, role);
             ps.setString(2, status);
             ps.setInt(3, userId);
-            return ps.executeUpdate() > 0;
+            updated = ps.executeUpdate() > 0;
         } catch (SQLException e) {
             throw new DataAccessException("Could not update user role and status.", e);
         }
+        if (updated) {
+            activityLogDao.logAction(adminId, ActionType.USER_UPDATED,
+                    "Admin " + adminId + " changed role of User " + userId + nameOf(target)
+                            + " to " + role + ", status to " + status + ".");
+        }
+        return updated;
+    }
+
+    private String nameOf(User u) {
+        return u == null ? "" : " (" + u.username() + ")";
     }
 
     private List<User> query(String sql, Object... params) {

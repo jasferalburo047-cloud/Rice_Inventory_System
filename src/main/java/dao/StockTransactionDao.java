@@ -1,5 +1,6 @@
 package dao;
 
+import model.ActionType;
 import model.StockTransaction;
 import model.TransactionType;
 
@@ -12,27 +13,39 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
+/** Core business process: sales, stock-in and stock-out. Every transaction is written to the audit trail. */
 public class StockTransactionDao {
 
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
+    private static final String SQL_PRODUCT_NAME = "SELECT name FROM products WHERE id = ?";
     private static final String SQL_ADD_STOCK = "UPDATE products SET quantity = quantity + ? WHERE id = ?";
     private static final String SQL_DEDUCT_STOCK = "UPDATE products SET quantity = quantity - ? WHERE id = ? AND quantity >= ?";
     private static final String SQL_INSERT = "INSERT INTO stock_transactions (product_id, user_id, type, quantity, total_amount, transaction_date) VALUES (?, ?, ?, ?, ?, ?)";
     private static final String SQL_FIND_ALL = "SELECT t.id, t.product_id, p.name AS product_name, t.user_id, u.username, t.type, t.quantity, t.total_amount, t.transaction_date FROM stock_transactions t LEFT JOIN products p ON p.id = t.product_id JOIN users u ON u.id = t.user_id ORDER BY t.id DESC";
     private static final String SQL_FIND_BY_USER = "SELECT t.id, t.product_id, p.name AS product_name, t.user_id, u.username, t.type, t.quantity, t.total_amount, t.transaction_date FROM stock_transactions t LEFT JOIN products p ON p.id = t.product_id JOIN users u ON u.id = t.user_id WHERE t.user_id = ? ORDER BY t.id DESC";
 
+    private final ActivityLogDao activityLogDao;
+
+    public StockTransactionDao(ActivityLogDao activityLogDao) {
+        this.activityLogDao = activityLogDao;
+    }
+
     /**
-     * Updates the product stock AND records the transaction in one database transaction.
+     * Updates the product stock AND records the transaction in one database transaction,
+     * then writes an audit-log entry (SALE_PROCESSED, STOCK_IN or STOCK_OUT).
      * @return false if there was not enough stock (nothing is changed in that case)
      */
     public boolean record(int productId, int userId, TransactionType type, double quantity, double totalAmount) {
         String updateSql = (type == TransactionType.STOCK_IN) ? SQL_ADD_STOCK : SQL_DEDUCT_STOCK;
+        String productName = null;
 
         try (Connection c = DatabaseConnection.getConnection()) {
             c.setAutoCommit(false);
             try (PreparedStatement up = c.prepareStatement(updateSql);
                  PreparedStatement ins = c.prepareStatement(SQL_INSERT)) {
+
+                productName = findProductName(c, productId);
 
                 up.setDouble(1, quantity);
                 up.setInt(2, productId);
@@ -53,13 +66,42 @@ public class StockTransactionDao {
                 ins.executeUpdate();
 
                 c.commit();
-                return true;
             } catch (SQLException e) {
                 c.rollback();
                 throw e;
             }
         } catch (SQLException e) {
             throw new DataAccessException("Could not record transaction.", e);
+        }
+
+        logTransaction(userId, type, quantity, totalAmount, productName == null ? "product #" + productId : productName);
+        return true;
+    }
+
+    private String findProductName(Connection c, int productId) throws SQLException {
+        try (PreparedStatement ps = c.prepareStatement(SQL_PRODUCT_NAME)) {
+            ps.setInt(1, productId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getString("name") : null;
+            }
+        }
+    }
+
+    private void logTransaction(int userId, TransactionType type, double quantity, double total, String productName) {
+        String qty = String.format("%.2f", quantity);
+        switch (type) {
+            case SALE:
+                activityLogDao.logAction(userId, ActionType.SALE_PROCESSED,
+                        "Processed sale of " + qty + " kg " + productName + " - Total: P" + String.format("%.2f", total));
+                break;
+            case STOCK_IN:
+                activityLogDao.logAction(userId, ActionType.STOCK_IN,
+                        "Recorded stock-in of " + qty + " kg " + productName + ".");
+                break;
+            default:
+                activityLogDao.logAction(userId, ActionType.STOCK_OUT,
+                        "Recorded stock-out of " + qty + " kg " + productName + ".");
+                break;
         }
     }
 

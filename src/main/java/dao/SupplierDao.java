@@ -1,5 +1,6 @@
 package dao;
 
+import model.ActionType;
 import model.Supplier;
 
 import java.sql.Connection;
@@ -16,7 +17,15 @@ public class SupplierDao {
     private static final String SQL_FIND_BY_ID = "SELECT id, name, contact_number, address FROM suppliers WHERE id = ?";
     private static final String SQL_FIND_ALL = "SELECT id, name, contact_number, address FROM suppliers ORDER BY id";
 
-    public int insert(String name, String contact, String address) {
+    private final ActivityLogDao activityLogDao;
+
+    public SupplierDao(ActivityLogDao activityLogDao) {
+        this.activityLogDao = activityLogDao;
+    }
+
+    /** Adds a supplier and logs it (SUPPLIER_ADDED). */
+    public int insert(int userId, String name, String contact, String address) {
+        int newId = -1;
         try (Connection c = DatabaseConnection.getConnection();
              PreparedStatement ps = c.prepareStatement(SQL_INSERT, Statement.RETURN_GENERATED_KEYS)) {
             ps.setString(1, name);
@@ -24,11 +33,13 @@ public class SupplierDao {
             ps.setString(3, address);
             ps.executeUpdate();
             try (ResultSet keys = ps.getGeneratedKeys()) {
-                return keys.next() ? keys.getInt(1) : -1;
+                newId = keys.next() ? keys.getInt(1) : -1;
             }
         } catch (SQLException e) {
             throw new DataAccessException("Could not add supplier.", e);
         }
+        activityLogDao.logAction(userId, ActionType.SUPPLIER_ADDED, "Added supplier #" + newId + " " + name + ".");
+        return newId;
     }
 
     public Supplier findById(int id) {

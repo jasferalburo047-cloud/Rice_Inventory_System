@@ -53,9 +53,13 @@ public class DatabaseInitializer {
             "CREATE TABLE IF NOT EXISTS activity_logs ("
                     + "id INTEGER PRIMARY KEY AUTOINCREMENT, "
                     + "user_id INTEGER NOT NULL, "
-                    + "action TEXT NOT NULL, "
-                    + "log_date TEXT NOT NULL, "
-                    + "FOREIGN KEY (user_id) REFERENCES users(id))";
+                    + "action_type TEXT NOT NULL, "
+                    + "description TEXT NOT NULL, "
+                    + "timestamp TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+                    + "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE)";
+
+    private static final String LOG_TABLE_COLUMNS = "PRAGMA table_info(activity_logs)";
+    private static final String DROP_ACTIVITY_LOGS = "DROP TABLE IF EXISTS activity_logs";
 
     private static final String COUNT_USERS = "SELECT COUNT(*) FROM users";
     private static final String COUNT_SUPPLIERS = "SELECT COUNT(*) FROM suppliers";
@@ -80,9 +84,32 @@ public class DatabaseInitializer {
                 st.execute(CREATE_STOCK_TRANSACTIONS);
                 st.execute(CREATE_ACTIVITY_LOGS);
             }
+            upgradeOldActivityLogsTable(conn);
             seedDefaults(conn);
         } catch (SQLException e) {
             throw new DataAccessException("Failed to initialize the database: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * If an older database still has the previous activity_logs layout (no action_type column),
+     * rebuild the table with the new layout so logging works without deleting the .db file.
+     */
+    private void upgradeOldActivityLogsTable(Connection conn) throws SQLException {
+        boolean hasActionType = false;
+        try (Statement st = conn.createStatement();
+             ResultSet rs = st.executeQuery(LOG_TABLE_COLUMNS)) {
+            while (rs.next()) {
+                if ("action_type".equalsIgnoreCase(rs.getString("name"))) {
+                    hasActionType = true;
+                }
+            }
+        }
+        if (!hasActionType) {
+            try (Statement st = conn.createStatement()) {
+                st.execute(DROP_ACTIVITY_LOGS);
+                st.execute(CREATE_ACTIVITY_LOGS);
+            }
         }
     }
 

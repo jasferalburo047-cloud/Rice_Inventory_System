@@ -20,11 +20,11 @@ public class Main {
         }
 
         // 2. Instantiate DAOs & utilities (ONE shared instance of each)
-        UserDao userDao = new UserDao();
-        ProductDao productDao = new ProductDao();
-        SupplierDao supplierDao = new SupplierDao();
-        StockTransactionDao transactionDao = new StockTransactionDao();
         ActivityLogDao logDao = new ActivityLogDao();
+        UserDao userDao = new UserDao(logDao);
+        ProductDao productDao = new ProductDao(logDao);
+        SupplierDao supplierDao = new SupplierDao(logDao);
+        StockTransactionDao transactionDao = new StockTransactionDao(logDao);
         Scanner scanner = new Scanner(System.in);
 
         // 3. Delegate everything else to Authentication

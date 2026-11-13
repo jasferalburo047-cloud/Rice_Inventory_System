@@ -6,6 +6,7 @@ import dao.ProductDao;
 import dao.StockTransactionDao;
 import dao.SupplierDao;
 import dao.UserDao;
+import model.ActionType;
 import model.Role;
 import model.User;
 import util.ConsoleInput;
@@ -13,7 +14,7 @@ import util.ConsoleInput;
 import java.util.Scanner;
 
 /**
- * Handles login, registration and role-based routing.
+ * Handles login, logout, registration and role-based routing.
  * Receives the single shared Scanner and UserDao (plus the other DAOs for the role menus).
  * NOTE: no SQL in this class - only DAO calls.
  */
@@ -91,11 +92,20 @@ public class Authentication {
                     System.out.println("Your account is deactivated. Contact the admin.");
                     return;
                 default:
-                    logDao.log(user.id(), "Logged in");
+                    logDao.logAction(user.id(), ActionType.USER_LOGIN,
+                            "User " + user.username() + " (ID: " + user.id() + ") logged in.");
                     routeToMenu(user);
+                    logout(user);
                     return;
             }
         }
+    }
+
+    /** Writes the logout entry to the audit trail. Called when a role menu is closed. */
+    private void logout(User user) {
+        logDao.logAction(user.id(), ActionType.USER_LOGOUT,
+                "User " + user.username() + " (ID: " + user.id() + ") logged out.");
+        System.out.println("You have been logged out.");
     }
 
     /** Routes the logged-in user to the menu of their role. */
